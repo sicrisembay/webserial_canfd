@@ -1,0 +1,110 @@
+# Build directories
+Debug/
+Release/
+build/
+
+# Object files
+*.o
+*.obj
+*.elf
+*.bin
+*.hex
+*.map
+*.lst
+*.list
+
+# Dependency files
+*.d
+
+# Stack usage files
+*.su
+
+# Cyclomatic complexity files
+*.cyclo
+
+# Linker output
+*.ilk
+*.out
+*.exp
+
+# Libraries (include if needed)
+# *.a
+# *.lib
+
+# Debug files
+*.dSYM/
+*.dwarf
+
+# STM32CubeIDE
+.settings/
+*.launch
+
+# STM32CubeMX backup
+*.ioc.bak
+*.tmp
+
+# Keil MDK-ARM
+*.uvopt
+*.uvoptx
+*.uvgui.*
+*.bak
+*.dep
+*.crf
+*.lnp
+*.d
+*.axf
+*.htm
+*.sct
+*.scvd
+RTE/
+DebugConfig/
+
+# IAR EWARM
+*.ewt
+*.eww
+*.ewd
+*.dep
+*.dni
+*.wsdt
+settings/
+
+# Segger Embedded Studio
+*.emSession
+*.emProject
+*.jlink
+
+# Visual Studio Code
+.vscode/
+*.code-workspace
+
+# Eclipse
+.metadata/
+
+# System files
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+
+# Compiler temporary files
+*.i
+*.s
+*.bc
+
+# Python (if using build scripts)
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+venv/
+env/
+
+# CMake (if using CMake)
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+Makefile
+
+# Other
+*.log
