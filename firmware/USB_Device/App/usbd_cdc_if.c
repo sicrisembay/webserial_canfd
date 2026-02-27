@@ -22,7 +22,7 @@
 #include "usbd_cdc_if.h"
 
 /* USER CODE BEGIN INCLUDE */
-
+#include "UTIL_ringbuf.h"
 /* USER CODE END INCLUDE */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -94,7 +94,7 @@ uint8_t UserRxBufferFS[APP_RX_DATA_SIZE];
 uint8_t UserTxBufferFS[APP_TX_DATA_SIZE];
 
 /* USER CODE BEGIN PRIVATE_VARIABLES */
-
+extern tRingBufObject usbTxRb;
 /* USER CODE END PRIVATE_VARIABLES */
 
 /**
@@ -261,6 +261,9 @@ static int8_t CDC_Control_FS(uint8_t cmd, uint8_t* pbuf, uint16_t length)
 static int8_t CDC_Receive_FS(uint8_t* Buf, uint32_t *Len)
 {
   /* USER CODE BEGIN 6 */
+  if((Len != (uint32_t *)0) && (*Len > 0)) {
+	  PARSER_Store(Buf, *Len);
+  }
   USBD_CDC_SetRxBuffer(&hUsbDeviceFS, &Buf[0]);
   USBD_CDC_ReceivePacket(&hUsbDeviceFS);
   return (USBD_OK);
@@ -316,6 +319,22 @@ static int8_t CDC_TransmitCplt_FS(uint8_t *Buf, uint32_t *Len, uint8_t epnum)
 }
 
 /* USER CODE BEGIN PRIVATE_FUNCTIONS_IMPLEMENTATION */
+void CDC_ProcessTx(void)
+{
+    uint32_t size;
+    USBD_CDC_HandleTypeDef *hcdc = (USBD_CDC_HandleTypeDef*)hUsbDeviceFS.pClassData;
+    if (hcdc->TxState != 0){
+        return;
+    }
+    size = UTIL_RingBufUsed(&usbTxRb);
+    if(size > APP_TX_DATA_SIZE) {
+        size = APP_TX_DATA_SIZE;
+    }
+    if(size != 0) {
+        UTIL_RingBufRead(&usbTxRb, UserTxBufferFS, size);
+        CDC_Transmit_FS(UserTxBufferFS, size);
+    }
+}
 
 /* USER CODE END PRIVATE_FUNCTIONS_IMPLEMENTATION */
 
