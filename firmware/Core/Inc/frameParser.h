@@ -28,12 +28,16 @@
 #define CMD_GET_DEVICE_ID       (0x00)
 #define CMD_CAN_START           (0x01)
 #define CMD_CAN_STOP            (0x02)
+#define CMD_DEVICE_RESET        (0x03)
 #define CMD_SEND_DOWNSTREAM     (0x10)
 #define CMD_SEND_UPSTREAM       (0x11)
+#define CMD_PROTOCOL_STATUS     (0x12)
+#define CMD_GET_CAN_STATS       (0x13)
+#define CMD_RESET_CAN_STATS     (0x14)
 
 void PARSER_Store(uint8_t *pBuf, uint32_t len);
 void PARSER_Process();
 void PARSER_GetTxBlock(uint8_t * pBuf, uint32_t * pSize);
-void PARSER_SendFrame(uint8_t *pBuf, uint32_t len);
+uint8_t PARSER_SendFrame(uint8_t *pBuf, uint32_t len);
 
 #endif /* FRAME_PARSER_H */

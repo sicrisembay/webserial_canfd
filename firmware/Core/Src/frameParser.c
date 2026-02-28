@@ -15,6 +15,9 @@ static uint8_t rxFrameBuffer[FRAME_RX_SIZE];
 extern tRingBufObject usbTxRb;
 static uint16_t packetSeq = 0;
 
+static uint16_t stat_downstream_packet_loss_cnt = 0;
+static uint16_t stat_upstream_packet_loss_cnt = 0;
+
 static void _ProcessValidFrame(const uint32_t index, uint32_t len)
 {
     uint8_t responseBuffer[128];
@@ -39,26 +42,29 @@ static void _ProcessValidFrame(const uint32_t index, uint32_t len)
         }
 
         case CMD_CAN_START: {
-            bool hasError = false;
-            hasError = (HAL_OK != HAL_FDCAN_Start(&hfdcan1));
+            HAL_StatusTypeDef sts = HAL_FDCAN_Start(&hfdcan1);
 
             respLen = 0;
             responseBuffer[PAYLOAD_OFFSET + respLen++] = CMD_CAN_START;
-            responseBuffer[PAYLOAD_OFFSET + respLen++] = hasError ? 0x1 : 0x00;
+            responseBuffer[PAYLOAD_OFFSET + respLen++] = (uint8_t)sts;
             respLen += FRAME_OVERHEAD;
             PARSER_SendFrame(responseBuffer, respLen);
             break;
         }
 
         case CMD_CAN_STOP: {
-            bool hasError = false;
-            hasError = (HAL_OK != HAL_FDCAN_Stop(&hfdcan1));
+            HAL_StatusTypeDef sts = HAL_FDCAN_Stop(&hfdcan1);
 
             respLen = 0;
             responseBuffer[PAYLOAD_OFFSET + respLen++] = CMD_CAN_STOP;
-            responseBuffer[PAYLOAD_OFFSET + respLen++] = hasError ? 0x1 : 0x00;
+            responseBuffer[PAYLOAD_OFFSET + respLen++] = sts;
             respLen += FRAME_OVERHEAD;
             PARSER_SendFrame(responseBuffer, respLen);
+            break;
+        }
+
+        case CMD_DEVICE_RESET: {
+            NVIC_SystemReset();
             break;
         }
 
@@ -152,6 +158,9 @@ static void _ProcessValidFrame(const uint32_t index, uint32_t len)
                     }
                 }
                 if(CAN_Send(&canTx) != true) {
+                    if(stat_downstream_packet_loss_cnt < UINT16_MAX) {
+                        stat_downstream_packet_loss_cnt++;
+                    }
                     hasError = true;
                 }
             }
@@ -163,7 +172,69 @@ static void _ProcessValidFrame(const uint32_t index, uint32_t len)
             responseBuffer[PAYLOAD_OFFSET + respLen++] = hasError ? 1 : 0;
             respLen += FRAME_OVERHEAD;
             PARSER_SendFrame(responseBuffer, respLen);
+            break;
+        }
+        case CMD_GET_CAN_STATS: {
+            /*
+             * CAN Stats Response Format:
+             * Payload[0]: CMD_GET_CAN_STATS (0x13)
+             * Payload[1-2]: TxErrorCnt (uint16_t, little-endian)
+             * Payload[3-4]: TxErrorCntMax (uint16_t, little-endian)
+             * Payload[5-6]: RxErrorCnt (uint16_t, little-endian)
+             * Payload[7-8]: RxErrorCntMax (uint16_t, little-endian)
+             * Payload[9-10]: PassiveErrorCnt (uint16_t, little-endian)
+             * Payload[11-12]: stat_downstream_packet_loss_cnt (uint16_t, little-endian)
+             * Payload[13-14]: stat_upstream_packet_loss_cnt (uint16_t, little-endian)
+             */
+            CanStat_t stats = CAN_get_stats();
 
+            respLen = 0;
+            responseBuffer[PAYLOAD_OFFSET + respLen++] = CMD_GET_CAN_STATS;
+
+            // TxErrorCnt
+            responseBuffer[PAYLOAD_OFFSET + respLen++] = (uint8_t)(stats.TxErrorCnt & 0xFF);
+            responseBuffer[PAYLOAD_OFFSET + respLen++] = (uint8_t)((stats.TxErrorCnt >> 8) & 0xFF);
+
+            // TxErrorCntMax
+            responseBuffer[PAYLOAD_OFFSET + respLen++] = (uint8_t)(stats.TxErrorCntMax & 0xFF);
+            responseBuffer[PAYLOAD_OFFSET + respLen++] = (uint8_t)((stats.TxErrorCntMax >> 8) & 0xFF);
+
+            // RxErrorCnt
+            responseBuffer[PAYLOAD_OFFSET + respLen++] = (uint8_t)(stats.RxErrorCnt & 0xFF);
+            responseBuffer[PAYLOAD_OFFSET + respLen++] = (uint8_t)((stats.RxErrorCnt >> 8) & 0xFF);
+
+            // RxErrorCntMax
+            responseBuffer[PAYLOAD_OFFSET + respLen++] = (uint8_t)(stats.RxErrorCntMax & 0xFF);
+            responseBuffer[PAYLOAD_OFFSET + respLen++] = (uint8_t)((stats.RxErrorCntMax >> 8) & 0xFF);
+
+            // PassiveErrorCnt
+            responseBuffer[PAYLOAD_OFFSET + respLen++] = (uint8_t)(stats.PassiveErrorCnt & 0xFF);
+            responseBuffer[PAYLOAD_OFFSET + respLen++] = (uint8_t)((stats.PassiveErrorCnt >> 8) & 0xFF);
+
+            // Downstream packet loss count
+            responseBuffer[PAYLOAD_OFFSET + respLen++] = (uint8_t)(stat_downstream_packet_loss_cnt & 0xFF);
+            responseBuffer[PAYLOAD_OFFSET + respLen++] = (uint8_t)((stat_downstream_packet_loss_cnt >> 8) & 0xFF);
+
+            // Upstream packet loss count
+            responseBuffer[PAYLOAD_OFFSET + respLen++] = (uint8_t)(stat_upstream_packet_loss_cnt & 0xFF);
+            responseBuffer[PAYLOAD_OFFSET + respLen++] = (uint8_t)((stat_upstream_packet_loss_cnt >> 8) & 0xFF);
+
+            // Success status
+            responseBuffer[PAYLOAD_OFFSET + respLen++] = 0;
+            respLen += FRAME_OVERHEAD;
+            PARSER_SendFrame(responseBuffer, respLen);
+            break;
+        }
+        case CMD_RESET_CAN_STATS: {
+            CAN_reset_stats();
+            stat_downstream_packet_loss_cnt = 0;
+            stat_upstream_packet_loss_cnt = 0;
+
+            respLen = 0;
+            responseBuffer[PAYLOAD_OFFSET + respLen++] = CMD_RESET_CAN_STATS;
+            responseBuffer[PAYLOAD_OFFSET + respLen++] = 0;  // Success status
+            respLen += FRAME_OVERHEAD;
+            PARSER_SendFrame(responseBuffer, respLen);
             break;
         }
         default:
@@ -260,10 +331,11 @@ void PARSER_Process()
     }
 }
 
-void PARSER_SendFrame(uint8_t *pBuf, uint32_t len)
+uint8_t PARSER_SendFrame(uint8_t *pBuf, uint32_t len)
 {
     uint32_t i;
     uint8_t sum = 0;
+
     /*
      * Start of Frame
      */
@@ -297,10 +369,19 @@ void PARSER_SendFrame(uint8_t *pBuf, uint32_t len)
         sum += pBuf[i];
     }
     pBuf[i] = (uint8_t)((~sum) + 1);
+
+    if(len > UTIL_RingBufFree(&usbTxRb)) {
+        if(stat_upstream_packet_loss_cnt < UINT16_MAX) {
+            stat_upstream_packet_loss_cnt++;
+        }
+        // Not enough space
+        return 1;
+    }
+
     /*
      * Write to Tx Buffer
      */
-    if(len <= UTIL_RingBufFree(&usbTxRb)) {
-        UTIL_RingBufWrite(&usbTxRb, pBuf, len);
-    }
+    UTIL_RingBufWrite(&usbTxRb, pBuf, len);
+
+    return 0;
 }

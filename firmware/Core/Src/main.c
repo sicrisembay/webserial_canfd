@@ -115,6 +115,7 @@ int main(void)
     PARSER_Process();
     CANTX_Process();
     CANRX_Process();
+    CANErr_Process();
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
