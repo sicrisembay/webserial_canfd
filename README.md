@@ -156,6 +156,9 @@ CAN timing and configuration parameters are set in [webserial_canfd.ioc](firmwar
 - **Sample Point:** Adjustable
 - **Filters:** Configurable receive filters
 
+## Note on BOOT configuration
+In MKS CANable v2.0, BOOT0 and CAN_RX share the same pin45.  To properly debug the firmware using SWD JTAG, nBOOT0 (bit27 in FLASH_OPTR) should be set to 1 and nSWBOOT0 (bit26 in FLASH_OPTR) should be set to 0.
+
 ## Error Handling
 
 The firmware tracks CAN bus errors and maintains statistics:

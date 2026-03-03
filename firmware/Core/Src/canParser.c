@@ -19,6 +19,7 @@ static CanTx_t canTxSto[CANTX_Q_SIZE];
 extern FDCAN_HandleTypeDef hfdcan1;
 
 static CanStat_t canStat = {0};
+static uint32_t can_tx_loss_packet_count = 0;
 
 static bool CAN_txQ_full()
 {
@@ -32,6 +33,8 @@ static bool CAN_txQ_empty()
 
 bool CAN_Send(CanTx_t * pCanTx)
 {
+	bool isOK = true;
+
     if(pCanTx == (CanTx_t *)0) {
         return false;
     }
@@ -41,20 +44,28 @@ bool CAN_Send(CanTx_t * pCanTx)
     }
 
     uint32_t isrContext = __get_IPSR() & 0x3F;
+    uint32_t primask_bit = __get_PRIMASK();
+
     /* Enter Critical Section */
     if(isrContext == 0) {
         __disable_irq();
     }
 
-    memcpy(&canTxSto[canTxWrPtr], pCanTx, sizeof(CanTx_t));
-    canTxWrPtr = (canTxWrPtr + 1) % CANTX_Q_SIZE;
-
+    if(((canTxWrPtr + 1) % CANTX_Q_SIZE) == canTxRdPtr) {
+        // Full
+        isOK = false;
+    } else {
+        memcpy(&canTxSto[canTxWrPtr], pCanTx, sizeof(CanTx_t));
+        canTxWrPtr = (canTxWrPtr + 1) % CANTX_Q_SIZE;
+    }
     /* Exit Critical Section */
     if(isrContext == 0) {
-        __enable_irq();
+        if(primask_bit == 0) {
+            __enable_irq();
+        }
     }
 
-    return true;
+    return isOK;
 }
 
 
@@ -62,7 +73,6 @@ void CANTX_Process(void)
 {
     // Note: To avoid data race condition, this function is only
     // allowed to be called in Thread mode
-
     if ((__get_IPSR() & 0x3F) != 0) {
         // Not in thread mode
         Error_Handler();
@@ -71,18 +81,26 @@ void CANTX_Process(void)
     if(hfdcan1.State == HAL_FDCAN_STATE_BUSY) {
         if(HAL_FDCAN_GetTxFifoFreeLevel(&hfdcan1) > 0) {
             if(!CAN_txQ_empty()) {
-                CanTx_t canTx;
+                CanTx_t canTx = canTxSto[canTxRdPtr];
 
-                /* Enter Critical Section */
-                __disable_irq();
+                // Try to send to FDCAN hardware
+                if(HAL_OK == HAL_FDCAN_AddMessageToTxFifoQ(&hfdcan1, &(canTx.header), canTx.data)) {
+                    /* Enter Critical Section */
+                    uint32_t primask_bit = __get_PRIMASK();
+                    __disable_irq();
 
-                memcpy(&canTx, &canTxSto[canTxRdPtr], sizeof(CanTx_t));
-                canTxRdPtr = (canTxRdPtr + 1) % CANTX_Q_SIZE;
+                    // Success - remove from queue
+                    canTxRdPtr = (canTxRdPtr + 1) % CANTX_Q_SIZE;
 
-                /* Exit Critical Section */
-                __enable_irq();
+                    /* Exit Critical Section */
+                    if(primask_bit == 0) {
+                        __enable_irq();
+                    }
+                } else {
+                    // Failed - keep packet in queue for retry next time
+                    can_tx_loss_packet_count++;
+                }
 
-                HAL_FDCAN_AddMessageToTxFifoQ(&hfdcan1, &(canTx.header), canTx.data);
             }
         }
     }

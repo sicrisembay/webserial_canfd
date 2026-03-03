@@ -17,6 +17,7 @@ static uint16_t packetSeq = 0;
 
 static uint16_t stat_downstream_packet_loss_cnt = 0;
 static uint16_t stat_upstream_packet_loss_cnt = 0;
+static uint16_t stat_rx_buffer_overflow_cnt = 0;
 
 static void _ProcessValidFrame(const uint32_t index, uint32_t len)
 {
@@ -185,6 +186,7 @@ static void _ProcessValidFrame(const uint32_t index, uint32_t len)
              * Payload[9-10]: PassiveErrorCnt (uint16_t, little-endian)
              * Payload[11-12]: stat_downstream_packet_loss_cnt (uint16_t, little-endian)
              * Payload[13-14]: stat_upstream_packet_loss_cnt (uint16_t, little-endian)
+             * Payload[15-16]: stat_rx_buffer_overflow_cnt (uint16_t, little-endian)
              */
             CanStat_t stats = CAN_get_stats();
 
@@ -219,6 +221,10 @@ static void _ProcessValidFrame(const uint32_t index, uint32_t len)
             responseBuffer[PAYLOAD_OFFSET + respLen++] = (uint8_t)(stat_upstream_packet_loss_cnt & 0xFF);
             responseBuffer[PAYLOAD_OFFSET + respLen++] = (uint8_t)((stat_upstream_packet_loss_cnt >> 8) & 0xFF);
 
+            // RX Buffer overflow count
+            responseBuffer[PAYLOAD_OFFSET + respLen++] = (uint8_t)(stat_rx_buffer_overflow_cnt & 0xFF);
+            responseBuffer[PAYLOAD_OFFSET + respLen++] = (uint8_t)((stat_rx_buffer_overflow_cnt >> 8) & 0xFF);
+
             // Success status
             responseBuffer[PAYLOAD_OFFSET + respLen++] = 0;
             respLen += FRAME_OVERHEAD;
@@ -229,6 +235,7 @@ static void _ProcessValidFrame(const uint32_t index, uint32_t len)
             CAN_reset_stats();
             stat_downstream_packet_loss_cnt = 0;
             stat_upstream_packet_loss_cnt = 0;
+            stat_rx_buffer_overflow_cnt = 0;
 
             respLen = 0;
             responseBuffer[PAYLOAD_OFFSET + respLen++] = CMD_RESET_CAN_STATS;
@@ -245,6 +252,29 @@ static void _ProcessValidFrame(const uint32_t index, uint32_t len)
 void PARSER_Store(uint8_t *pBuf, uint32_t len)
 {
     uint32_t i = 0;
+    uint32_t availableSpace = 0;
+    uint32_t localRdPtr = rdPtr;  // Snapshot for consistent calculation
+    uint32_t localWrPtr = wrPtr;
+
+    // Calculate available space in the buffer
+    // Leave 1 byte margin to distinguish full from empty
+    if(localWrPtr >= localRdPtr) {
+        availableSpace = (FRAME_RX_SIZE - 1) - (localWrPtr - localRdPtr);
+    } else {
+        availableSpace = localRdPtr - localWrPtr - 1;
+    }
+
+    // Check if we have enough space
+    if(len > availableSpace) {
+        // Buffer overflow - cannot store all data
+        // Track the overflow event
+        if(stat_rx_buffer_overflow_cnt < UINT16_MAX) {
+            stat_rx_buffer_overflow_cnt++;
+        }
+        return;
+    }
+
+    // Safe to write all data
     for(i = 0; i < len; i++) {
         rxFrameBuffer[wrPtr] = pBuf[i];
         wrPtr = (wrPtr + 1) % FRAME_RX_SIZE;
