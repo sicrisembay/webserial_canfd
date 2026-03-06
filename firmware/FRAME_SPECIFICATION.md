@@ -19,7 +19,7 @@ Each frame consists of the following fields:
 
 **Frame Overhead:** 10 bytes (excluding payload)
 
-**Minimum Frame Size:** 4 bytes (TAG + Length + Checksum, with payload length = 0)
+**Minimum Frame Size:** 10 bytes (TAG + Length + Timestamp + Packet Seq + Checksum, with no payload). This matches `FRAME_OVERHEAD` — the parser waits for at least 10 bytes before attempting to parse and rejects any declared length below 10.
 
 **Maximum Frame Size:** 1023 bytes (limited by FRAME_RX_SIZE buffer)
 
@@ -33,7 +33,7 @@ Each frame consists of the following fields:
 ### Length
 - **Format:** 16-bit unsigned integer, little-endian
 - **Value:** Total number of bytes in the frame, including TAG, Length, and Checksum
-- **Range:** 4 to 1023 bytes
+- **Range:** 10 to 1023 bytes (enforced by `FRAME_OVERHEAD` constant)
 
 ### Timestamp
 - **Format:** 32-bit unsigned integer, little-endian
@@ -75,6 +75,47 @@ Payload: 0x00
 Payload[0]: 0x00 (CMD_GET_DEVICE_ID)
 Payload[1]: 0xAC (Device ID)
 ```
+
+### Command: CAN Start (0x01)
+
+Starts the FDCAN peripheral.
+
+**Request:**
+```
+Payload[0]: 0x01 (CMD_CAN_START)
+```
+
+**Response:**
+```
+Payload[0]: 0x01 (CMD_CAN_START)
+Payload[1]: Status (0 = HAL_OK, non-zero = HAL error code)
+```
+
+### Command: CAN Stop (0x02)
+
+Stops the FDCAN peripheral.
+
+**Request:**
+```
+Payload[0]: 0x02 (CMD_CAN_STOP)
+```
+
+**Response:**
+```
+Payload[0]: 0x02 (CMD_CAN_STOP)
+Payload[1]: Status (0 = HAL_OK, non-zero = HAL error code)
+```
+
+### Command: Device Reset (0x03)
+
+Performs a system reset via `NVIC_SystemReset()`. No response is sent; the device resets immediately.
+
+**Request:**
+```
+Payload[0]: 0x03 (CMD_DEVICE_RESET)
+```
+
+**Response:** None (device resets immediately)
 
 ### Command: Send Downstream (0x10)
 
@@ -158,13 +199,82 @@ Payload[7..7+DLC-1]: CAN data bytes
 
 **Note:** This command has no request message - it is only sent by the device as a notification when CAN messages are received.
 
+### Command: Protocol Status (0x12)
+
+Sent automatically by the device (via `CANErr_Process()`) whenever the FDCAN protocol status changes. This is a device-to-host unsolicited notification.
+
+**Direction:** Device → Host (automatic notification)
+
+**Message Format:**
+```
+Payload[0]: 0x12 (CMD_PROTOCOL_STATUS)
+Payload[1]: LastErrorCode
+Payload[2]: DataLastErrorCode
+Payload[3]: Activity
+Payload[4]: Flags byte
+  bit0: ErrorPassive
+  bit1: Warning
+  bit2: BusOff
+  bit3: RxESIflag
+  bit4: RxBRSflag
+  bit5: RxFDFflag
+  bit6: ProtocolException
+  bit7: Reserved
+Payload[5]: TDCvalue
+```
+
+**Note:** This command has no request message. An initial status frame is sent once on the first call to `CANErr_Process()`, and subsequently whenever any monitored field changes.
+
+### Command: Get CAN Stats (0x13)
+
+Retrieves CAN error counters and frame loss statistics. This frame is sent both as a response to a host request and as an unsolicited notification from the device.
+
+**Request:**
+```
+Payload[0]: 0x13 (CMD_GET_CAN_STATS)
+```
+
+**Response / Unsolicited Notification:**
+```
+Payload[0]:     0x13 (CMD_GET_CAN_STATS)
+Payload[1-2]:   TxErrorCnt (uint16_t, little-endian)
+Payload[3-4]:   TxErrorCntMax (uint16_t, little-endian)
+Payload[5-6]:   RxErrorCnt (uint16_t, little-endian)
+Payload[7-8]:   RxErrorCntMax (uint16_t, little-endian)
+Payload[9-10]:  PassiveErrorCnt (uint16_t, little-endian)
+Payload[11-12]: stat_downstream_packet_loss_cnt (uint16_t, little-endian)
+Payload[13-14]: stat_upstream_packet_loss_cnt (uint16_t, little-endian)
+Payload[15-16]: stat_rx_buffer_overflow_cnt (uint16_t, little-endian)
+Payload[17]:    Status (0 = success)
+```
+
+**Unsolicited Notification Triggers (Device → Host):**
+The device automatically sends a stats frame via `CAN_stat_send()` from `CANErr_Process()` whenever:
+- A protocol status change is detected (`statusChanged`): error code change, ErrorPassive/Warning/BusOff/RxESIflag/ProtocolException transition
+- A new error count maximum is reached (`maxValChanged`): `TxErrorCntMax` or `RxErrorCntMax` updated to a new high-water mark
+
+### Command: Reset CAN Stats (0x14)
+
+Resets all CAN error counters and frame loss statistics to zero.
+
+**Request:**
+```
+Payload[0]: 0x14 (CMD_RESET_CAN_STATS)
+```
+
+**Response:**
+```
+Payload[0]: 0x14 (CMD_RESET_CAN_STATS)
+Payload[1]: Status (0 = success)
+```
+
 ## Frame Examples
 
 ### Example 1: Get Device ID Request
 
 ```
-Byte:  [0]   [1]   [2]   [3]   [4]   [5]   [6]   [7]   [8]   [9]   [10]  [11]
-Value: 0xFF  0x0B  0x00  0x00  0x00  0x00  0x00  0x00  0x00  0x00  0xF5
+Byte:  [0]   [1]   [2]   [3]   [4]   [5]   [6]   [7]   [8]   [9]   [10]
+Value: 0xFF  0x0B  0x00  0x00  0x00  0x00  0x00  0x00  0x00  0x00  0xF6
        TAG   LEN(L) LEN(H) TS    TS    TS    TS   SEQ(L) SEQ(H) CMD  CHKSUM
 ```
 
@@ -174,7 +284,7 @@ Value: 0xFF  0x0B  0x00  0x00  0x00  0x00  0x00  0x00  0x00  0x00  0xF5
 - Timestamp: 0x00000000
 - Packet Seq: 0x0000
 - Command: 0x00 (Get Device ID)
-- Checksum: 0xF5
+- Checksum: 0xF6 (two's complement of byte sum 0x0A)
 
 ### Example 2: Send Standard CAN Frame (ID=0x123, Data=[0x11, 0x22])
 
@@ -184,13 +294,12 @@ Message ID = 0x00000123
 DLC = 2
 
 Frame bytes:
-[0]   [1]   [2]   [3]   [4]   [5]   [6]   [7]   [8]   [9]   [10]  [11]  [12]  [13]  [14]  [15]  [16]
-0xFF  0x11  0x00  TS0   TS1   TS2   TS3   SEQ0  SEQ1  0x10  0x00  0x23  0x01  0x00  0x00  0x02  0x11  
-[17]  [18]  [19]
-0x22  DATA  CHKSUM
+[0]   [1]   [2]   [3]   [4]   [5]   [6]   [7]   [8]   [9]   [10]  [11]  [12]  [13]  [14]  [15]  [16]  [17]  [18]
+0xFF  0x13  0x00  TS0   TS1   TS2   TS3   SEQ0  SEQ1  0x10  0x00  0x23  0x01  0x00  0x00  0x02  0x11  0x22  CHKSUM
+TAG   LEN(L) LEN(H) TS    TS    TS    TS   SEQ(L) SEQ(H) CMD  TYPE  ID0   ID1   ID2   ID3   DLC  DATA0 DATA1 CHKSUM
 
 TAG: 0xFF
-Length: 17 bytes
+Length: 19 bytes (0x0013)
 Payload: 0x10 (CMD_SEND_DOWNSTREAM), 0x00 (TX_TYPE), 0x23 0x01 0x00 0x00 (ID), 0x02 (DLC), 0x11 0x22 (Data)
 ```
 
@@ -225,10 +334,11 @@ Frame structure:
 
 1. **Buffer Management:** Incoming bytes are stored in a circular buffer (FRAME_RX_SIZE = 1024 bytes)
 2. **TAG Detection:** Parser scans for TAG byte (0xFF)
-3. **Length Validation:** Check if length is within valid range (4 to 1023)
-4. **Buffer Check:** Verify entire frame is available in buffer
-5. **Checksum Validation:** Calculate and verify checksum
-6. **Frame Processing:** If valid, process the command in payload
+3. **Overhead Guard:** Wait until at least `FRAME_OVERHEAD` (10) bytes are available before reading the length field; break and wait for more data otherwise
+4. **Length Validation:** Read length from bytes 1–2 and check it is within valid range (`FRAME_OVERHEAD` to 1023, i.e. 10 to 1023); skip TAG byte and keep scanning if invalid
+5. **Buffer Check:** Verify entire frame (`length` bytes) is available in buffer; break and wait for more data otherwise
+6. **Checksum Validation:** Sum all `length` bytes; discard frame (skip TAG, keep scanning) if sum ≠ 0
+7. **Frame Processing:** Pass the validated frame to `_ProcessValidFrame()` and advance `rdPtr` by `length`
 
 ### Transmitting Frames
 

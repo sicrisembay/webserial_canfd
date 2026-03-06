@@ -255,19 +255,21 @@ void CANErr_Process(void)
     }
 
     // Check if any status field has changed
-    bool hasChanged = false;
+    bool statusChanged = false;
+    bool maxValChanged = false;
+
     if(isInitialized) {
         // Check LastErrorCode - only report if changed and not NONE/NO_CHANGE
         if((prevProtocolStatus.LastErrorCode != protocolStatus.LastErrorCode) &&
            (protocolStatus.LastErrorCode != FDCAN_PROTOCOL_ERROR_NONE) &&
            (protocolStatus.LastErrorCode != FDCAN_PROTOCOL_ERROR_NO_CHANGE)) {
-            hasChanged = true;
+            statusChanged = true;
         }
         // Check DataLastErrorCode - only report if changed and not NONE/NO_CHANGE
         if((prevProtocolStatus.DataLastErrorCode != protocolStatus.DataLastErrorCode) &&
            (protocolStatus.DataLastErrorCode != FDCAN_PROTOCOL_ERROR_NONE) &&
            (protocolStatus.DataLastErrorCode != FDCAN_PROTOCOL_ERROR_NO_CHANGE)) {
-            hasChanged = true;
+            statusChanged = true;
         }
         // Check other status fields
         if((prevProtocolStatus.ErrorPassive != protocolStatus.ErrorPassive) ||
@@ -275,27 +277,29 @@ void CANErr_Process(void)
            (prevProtocolStatus.BusOff != protocolStatus.BusOff) ||
            (prevProtocolStatus.RxESIflag != protocolStatus.RxESIflag) ||
            (prevProtocolStatus.ProtocolException != protocolStatus.ProtocolException)) {
-            hasChanged = true;
+            statusChanged = true;
         }
     } else {
         isInitialized = true;
-        hasChanged = true;  // Send initial state
+        statusChanged = true;  // Send initial state
     }
 
     canStat.RxErrorCnt = errorCounters.RxErrorCnt;
     canStat.TxErrorCnt = errorCounters.TxErrorCnt;
     if(canStat.RxErrorCnt > canStat.RxErrorCntMax) {
         canStat.RxErrorCntMax = canStat.RxErrorCnt;
+        maxValChanged = true;
     }
     if(canStat.TxErrorCnt > canStat.TxErrorCntMax) {
         canStat.TxErrorCntMax = canStat.TxErrorCnt;
+        maxValChanged = true;
     }
     if((errorCounters.RxErrorPassive == 1) && (prevErrorCounters.RxErrorPassive == 0)) {
         canStat.PassiveErrorCnt++;
     }
     prevErrorCounters = errorCounters;
 
-    if(hasChanged) {
+    if(statusChanged) {
         /*
          * Protocol Status Format:
          * Payload[0]: CMD_PROTOCOL_STATUS (0x12)
@@ -341,6 +345,74 @@ void CANErr_Process(void)
         // Update previous status
         prevProtocolStatus = protocolStatus;
     }
+
+    if(statusChanged || maxValChanged) {
+        CAN_stat_send();
+    }
+}
+
+
+void CAN_stat_send(void)
+{
+    uint8_t buffer[128];
+    uint32_t len = 0;
+    extern uint16_t stat_downstream_packet_loss_cnt;
+    extern uint16_t stat_upstream_packet_loss_cnt;
+    extern uint16_t stat_rx_buffer_overflow_cnt;
+
+    /*
+     * CAN Stats Response Format:
+     * Payload[0]: CMD_GET_CAN_STATS (0x13)
+     * Payload[1-2]: TxErrorCnt (uint16_t, little-endian)
+     * Payload[3-4]: TxErrorCntMax (uint16_t, little-endian)
+     * Payload[5-6]: RxErrorCnt (uint16_t, little-endian)
+     * Payload[7-8]: RxErrorCntMax (uint16_t, little-endian)
+     * Payload[9-10]: PassiveErrorCnt (uint16_t, little-endian)
+     * Payload[11-12]: stat_downstream_packet_loss_cnt (uint16_t, little-endian)
+     * Payload[13-14]: stat_upstream_packet_loss_cnt (uint16_t, little-endian)
+     * Payload[15-16]: stat_rx_buffer_overflow_cnt (uint16_t, little-endian)
+     * Payload[17]: Status (0 = success)
+     */
+
+    len = 0;
+    buffer[PAYLOAD_OFFSET + len++] = CMD_GET_CAN_STATS;
+
+    // TxErrorCnt
+    buffer[PAYLOAD_OFFSET + len++] = (uint8_t)(canStat.TxErrorCnt & 0xFF);
+    buffer[PAYLOAD_OFFSET + len++] = (uint8_t)((canStat.TxErrorCnt >> 8) & 0xFF);
+
+    // TxErrorCntMax
+    buffer[PAYLOAD_OFFSET + len++] = (uint8_t)(canStat.TxErrorCntMax & 0xFF);
+    buffer[PAYLOAD_OFFSET + len++] = (uint8_t)((canStat.TxErrorCntMax >> 8) & 0xFF);
+
+    // RxErrorCnt
+    buffer[PAYLOAD_OFFSET + len++] = (uint8_t)(canStat.RxErrorCnt & 0xFF);
+    buffer[PAYLOAD_OFFSET + len++] = (uint8_t)((canStat.RxErrorCnt >> 8) & 0xFF);
+
+    // RxErrorCntMax
+    buffer[PAYLOAD_OFFSET + len++] = (uint8_t)(canStat.RxErrorCntMax & 0xFF);
+    buffer[PAYLOAD_OFFSET + len++] = (uint8_t)((canStat.RxErrorCntMax >> 8) & 0xFF);
+
+    // PassiveErrorCnt
+    buffer[PAYLOAD_OFFSET + len++] = (uint8_t)(canStat.PassiveErrorCnt & 0xFF);
+    buffer[PAYLOAD_OFFSET + len++] = (uint8_t)((canStat.PassiveErrorCnt >> 8) & 0xFF);
+
+    // Downstream packet loss count
+    buffer[PAYLOAD_OFFSET + len++] = (uint8_t)(stat_downstream_packet_loss_cnt & 0xFF);
+    buffer[PAYLOAD_OFFSET + len++] = (uint8_t)((stat_downstream_packet_loss_cnt >> 8) & 0xFF);
+
+    // Upstream packet loss count
+    buffer[PAYLOAD_OFFSET + len++] = (uint8_t)(stat_upstream_packet_loss_cnt & 0xFF);
+    buffer[PAYLOAD_OFFSET + len++] = (uint8_t)((stat_upstream_packet_loss_cnt >> 8) & 0xFF);
+
+    // RX Buffer overflow count
+    buffer[PAYLOAD_OFFSET + len++] = (uint8_t)(stat_rx_buffer_overflow_cnt & 0xFF);
+    buffer[PAYLOAD_OFFSET + len++] = (uint8_t)((stat_rx_buffer_overflow_cnt >> 8) & 0xFF);
+
+    // Success status
+    buffer[PAYLOAD_OFFSET + len++] = 0;
+    len += FRAME_OVERHEAD;
+    PARSER_SendFrame(buffer, len);
 }
 
 

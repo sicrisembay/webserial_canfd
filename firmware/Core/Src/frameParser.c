@@ -15,19 +15,15 @@ static uint8_t rxFrameBuffer[FRAME_RX_SIZE];
 extern tRingBufObject usbTxRb;
 static uint16_t packetSeq = 0;
 
-static uint16_t stat_downstream_packet_loss_cnt = 0;
-static uint16_t stat_upstream_packet_loss_cnt = 0;
-static uint16_t stat_rx_buffer_overflow_cnt = 0;
+uint16_t stat_downstream_packet_loss_cnt = 0;
+uint16_t stat_upstream_packet_loss_cnt = 0;
+uint16_t stat_rx_buffer_overflow_cnt = 0;
 
 static void _ProcessValidFrame(const uint32_t index, uint32_t len)
 {
     uint8_t responseBuffer[128];
     uint32_t respLen = 0;
     uint8_t cmd;
-    uint32_t i;
-    bool sts = false;
-    uint8_t u8Param;
-    uint32_t u32Param;
 
     /* Command */
     cmd = rxFrameBuffer[(index + PAYLOAD_OFFSET) % FRAME_RX_SIZE];
@@ -176,59 +172,7 @@ static void _ProcessValidFrame(const uint32_t index, uint32_t len)
             break;
         }
         case CMD_GET_CAN_STATS: {
-            /*
-             * CAN Stats Response Format:
-             * Payload[0]: CMD_GET_CAN_STATS (0x13)
-             * Payload[1-2]: TxErrorCnt (uint16_t, little-endian)
-             * Payload[3-4]: TxErrorCntMax (uint16_t, little-endian)
-             * Payload[5-6]: RxErrorCnt (uint16_t, little-endian)
-             * Payload[7-8]: RxErrorCntMax (uint16_t, little-endian)
-             * Payload[9-10]: PassiveErrorCnt (uint16_t, little-endian)
-             * Payload[11-12]: stat_downstream_packet_loss_cnt (uint16_t, little-endian)
-             * Payload[13-14]: stat_upstream_packet_loss_cnt (uint16_t, little-endian)
-             * Payload[15-16]: stat_rx_buffer_overflow_cnt (uint16_t, little-endian)
-             */
-            CanStat_t stats = CAN_get_stats();
-
-            respLen = 0;
-            responseBuffer[PAYLOAD_OFFSET + respLen++] = CMD_GET_CAN_STATS;
-
-            // TxErrorCnt
-            responseBuffer[PAYLOAD_OFFSET + respLen++] = (uint8_t)(stats.TxErrorCnt & 0xFF);
-            responseBuffer[PAYLOAD_OFFSET + respLen++] = (uint8_t)((stats.TxErrorCnt >> 8) & 0xFF);
-
-            // TxErrorCntMax
-            responseBuffer[PAYLOAD_OFFSET + respLen++] = (uint8_t)(stats.TxErrorCntMax & 0xFF);
-            responseBuffer[PAYLOAD_OFFSET + respLen++] = (uint8_t)((stats.TxErrorCntMax >> 8) & 0xFF);
-
-            // RxErrorCnt
-            responseBuffer[PAYLOAD_OFFSET + respLen++] = (uint8_t)(stats.RxErrorCnt & 0xFF);
-            responseBuffer[PAYLOAD_OFFSET + respLen++] = (uint8_t)((stats.RxErrorCnt >> 8) & 0xFF);
-
-            // RxErrorCntMax
-            responseBuffer[PAYLOAD_OFFSET + respLen++] = (uint8_t)(stats.RxErrorCntMax & 0xFF);
-            responseBuffer[PAYLOAD_OFFSET + respLen++] = (uint8_t)((stats.RxErrorCntMax >> 8) & 0xFF);
-
-            // PassiveErrorCnt
-            responseBuffer[PAYLOAD_OFFSET + respLen++] = (uint8_t)(stats.PassiveErrorCnt & 0xFF);
-            responseBuffer[PAYLOAD_OFFSET + respLen++] = (uint8_t)((stats.PassiveErrorCnt >> 8) & 0xFF);
-
-            // Downstream packet loss count
-            responseBuffer[PAYLOAD_OFFSET + respLen++] = (uint8_t)(stat_downstream_packet_loss_cnt & 0xFF);
-            responseBuffer[PAYLOAD_OFFSET + respLen++] = (uint8_t)((stat_downstream_packet_loss_cnt >> 8) & 0xFF);
-
-            // Upstream packet loss count
-            responseBuffer[PAYLOAD_OFFSET + respLen++] = (uint8_t)(stat_upstream_packet_loss_cnt & 0xFF);
-            responseBuffer[PAYLOAD_OFFSET + respLen++] = (uint8_t)((stat_upstream_packet_loss_cnt >> 8) & 0xFF);
-
-            // RX Buffer overflow count
-            responseBuffer[PAYLOAD_OFFSET + respLen++] = (uint8_t)(stat_rx_buffer_overflow_cnt & 0xFF);
-            responseBuffer[PAYLOAD_OFFSET + respLen++] = (uint8_t)((stat_rx_buffer_overflow_cnt >> 8) & 0xFF);
-
-            // Success status
-            responseBuffer[PAYLOAD_OFFSET + respLen++] = 0;
-            respLen += FRAME_OVERHEAD;
-            PARSER_SendFrame(responseBuffer, respLen);
+            CAN_stat_send();
             break;
         }
         case CMD_RESET_CAN_STATS: {
@@ -303,10 +247,10 @@ void PARSER_Process()
         } else {
             availableBytes = (wrPtr + FRAME_RX_SIZE) - rdPtr;
         }
-        if(availableBytes < 3) {
+        if(availableBytes < FRAME_OVERHEAD) {
             /*
-             * Minimum of three bytes to proceed
-             * 1byte(TAG) + 2bytes(Length)
+             * Minimum of 10 bytes to proceed
+             * 1byte(TAG) + 2bytes(Length) + 4bytes(Timestamp) + 2bytes(Packet Sequence) + 1byte(Checksum)
              */
             break;
         }
@@ -315,10 +259,10 @@ void PARSER_Process()
         length = (uint32_t)(rxFrameBuffer[(rdPtr+1)%FRAME_RX_SIZE]) +
                 ((uint32_t)(rxFrameBuffer[(rdPtr+2)%FRAME_RX_SIZE]) << 8);
 
-        if((length < 4) || (length > (FRAME_RX_SIZE-1)))
+        if((length < FRAME_OVERHEAD) || (length > (FRAME_RX_SIZE-1)))
         {
-            // The packet size is too small. Minimum packet size is 4 bytes
-            // 1byte(TAG) + 2bytes(Length) + 1byte(Checksum)
+            // The packet size is too small. Minimum packet size is FRAME_OVERHEAD bytes
+            // 1byte(TAG) + 2bytes(Length) + 4bytes(Timestamp) + 2bytes(Packet Sequence) + 1byte(Checksum)
 
             // The packet size is too large, so either this is not the start of
             // a packet or an invalid packet was received.  Skip this start of

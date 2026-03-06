@@ -27,6 +27,7 @@ bool CAN_Send(CanTx_t * pCanTx);
 void CANTX_Process(void);
 void CANRX_Process(void);
 void CANErr_Process(void);
+void CAN_stat_send(void);
 CanStat_t CAN_get_stats(void);
 void CAN_reset_stats(void);
 
