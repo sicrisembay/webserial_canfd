@@ -57,6 +57,7 @@ void Error_Handler(void);
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/
+#define DFU_MAGIC_WORD          (0xDEADBEEFUL)
 #define WORD_LED_Pin GPIO_PIN_0
 #define WORD_LED_GPIO_Port GPIOA
 #define SWDIO_Pin GPIO_PIN_13
@@ -67,7 +68,7 @@ void Error_Handler(void);
 #define STAT_LED_GPIO_Port GPIOA
 
 /* USER CODE BEGIN Private defines */
-
+extern volatile uint32_t dfu_flag;
 /* USER CODE END Private defines */
 
 #ifdef __cplusplus

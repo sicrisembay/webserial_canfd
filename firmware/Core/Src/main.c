@@ -66,6 +66,37 @@ static void MX_TIM2_Init(void);
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
 
+/* DFU magic word placed in .noinit so it is not cleared by startup code */
+__attribute__((section(".noinit"))) volatile uint32_t dfu_flag;
+
+static void JumpToBootloader(void)
+{
+    /* Disable interrupts and de-initialize HAL */
+    __disable_irq();
+    HAL_DeInit();
+
+    /* Stop SysTick */
+    SysTick->CTRL = 0U;
+    SysTick->LOAD = 0U;
+    SysTick->VAL  = 0U;
+
+    /* Ensure HSI48 is running (required by the ROM USB DFU bootloader) */
+    RCC->CRRCR |= RCC_CRRCR_HSI48ON;
+    while (!(RCC->CRRCR & RCC_CRRCR_HSI48RDY));
+
+    /* Remap system memory to 0x00000000 */
+    __HAL_SYSCFG_REMAPMEMORY_SYSTEMFLASH();
+
+    /* Read the ROM bootloader's initial stack pointer and reset handler */
+    const uint32_t bootloader_base = 0x1FFF0000UL;
+    typedef void (*pFunction)(void);
+    uint32_t msp   = *(volatile uint32_t *) bootloader_base;
+    pFunction jump = (pFunction)(*(volatile uint32_t *)(bootloader_base + 4U));
+
+    __set_MSP(msp);
+    jump();
+}
+
 /* USER CODE END 0 */
 
 /**
@@ -76,6 +107,12 @@ int main(void)
 {
 
   /* USER CODE BEGIN 1 */
+
+  /* Enter ROM DFU bootloader if the magic word was set before the reset */
+  if (dfu_flag == DFU_MAGIC_WORD) {
+      dfu_flag = 0U;
+      JumpToBootloader();
+  }
 
   /* USER CODE END 1 */
 

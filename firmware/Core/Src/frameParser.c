@@ -65,6 +65,13 @@ static void _ProcessValidFrame(const uint32_t index, uint32_t len)
             break;
         }
 
+        case CMD_ENTER_DFU: {
+            /* Set the magic word then reset — JumpToBootloader() runs before main() */
+            dfu_flag = DFU_MAGIC_WORD;
+            NVIC_SystemReset();
+            break;
+        }
+
         case CMD_SEND_DOWNSTREAM: {
             /*
              * TX_TYPE
