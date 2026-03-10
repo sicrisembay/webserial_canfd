@@ -74,7 +74,11 @@ Payload: 0x00
 ```
 Payload[0]: 0x00 (CMD_GET_DEVICE_ID)
 Payload[1]: 0xAC (Device ID)
+Payload[2]: VERSION_MAJOR (firmware major version)
+Payload[3]: VERSION_MINOR (firmware minor version)
+Payload[4]: VERSION_PATCH (firmware patch version)
 ```
+
 
 ### Command: CAN Start (0x01)
 

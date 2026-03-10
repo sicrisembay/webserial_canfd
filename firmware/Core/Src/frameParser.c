@@ -33,6 +33,9 @@ static void _ProcessValidFrame(const uint32_t index, uint32_t len)
             respLen = 0;
             responseBuffer[PAYLOAD_OFFSET + respLen++] = CMD_GET_DEVICE_ID;
             responseBuffer[PAYLOAD_OFFSET + respLen++] = 0xAC;
+            responseBuffer[PAYLOAD_OFFSET + respLen++] = VERSION_MAJOR;
+            responseBuffer[PAYLOAD_OFFSET + respLen++] = VERSION_MINOR;
+            responseBuffer[PAYLOAD_OFFSET + respLen++] = VERSION_PATCH;
             respLen += FRAME_OVERHEAD;
             PARSER_SendFrame(responseBuffer, respLen);
             break;
