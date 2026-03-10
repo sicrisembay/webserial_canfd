@@ -268,6 +268,33 @@ Payload[0]: 0x14 (CMD_RESET_CAN_STATS)
 Payload[1]: Status (0 = success)
 ```
 
+### Command: Enter DFU (0xF0)
+
+Triggers a reset into the STM32 ROM USB DFU bootloader. Upon receiving this command, the firmware writes a magic word to a reserved RAM location (`.noinit` section) and immediately calls `NVIC_SystemReset()`. On the next boot, `main()` detects the magic word before any peripheral initialisation and jumps to the factory ROM DFU bootloader at `0x1FFF0000`.
+
+Once in DFU mode, the device re-enumerates on the USB host as a standard DFU device (`idVendor=0x0483`, `idProduct=0xDF11`) and new firmware can be flashed using `dfu-util` or STM32CubeProgrammer.
+
+**Request:**
+```
+Payload[0]: 0xF0 (CMD_ENTER_DFU)
+```
+
+**Response:** None — the device resets immediately after setting the DFU flag.
+
+**Host-side flashing example:**
+```bash
+# Using dfu-util
+dfu-util -a 0 -s 0x08000000:leave -D firmware.bin
+
+# Using STM32CubeProgrammer CLI
+STM32_Programmer_CLI -c port=USB1 -d firmware.bin 0x08000000 -v -g 0x08000000
+```
+
+**Notes:**
+- The magic word is cleared before the jump so the device boots normally after flashing.
+- On Windows, the WinUSB driver must be installed for the DFU device (e.g., via [Zadig](https://zadig.akeo.ie/)).
+- See [docs/DFU_IMPLEMENTATION.md](../docs/DFU_IMPLEMENTATION.md) for full implementation details.
+
 ## Frame Examples
 
 ### Example 1: Get Device ID Request

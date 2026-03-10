@@ -15,6 +15,7 @@ This project implements a bidirectional bridge between USB and CAN/CAN-FD networ
 - **Frame Protocol** - Structured communication protocol with timestamp and sequence tracking
 - **Error Handling** - CAN error monitoring and statistics reporting
 - **Real-time Operation** - Ring buffer architecture for efficient data handling
+- **USB DFU Support** - Firmware upgrades over USB triggered via `CMD_ENTER_DFU` command, jumping to the STM32 ROM DFU bootloader
 
 ## Hardware
 
@@ -86,6 +87,7 @@ The firmware uses a custom frame-based protocol for communication over USB. Each
 | PROTOCOL_STATUS | 0x12 | Get protocol status            |
 | GET_CAN_STATS  | 0x13 | Query CAN error statistics      |
 | RESET_CAN_STATS | 0x14 | Clear CAN error counters       |
+| ENTER_DFU     | 0xF0 | Reset into USB DFU bootloader    |
 
 For detailed protocol specifications, see [FRAME_SPECIFICATION.md](firmware/FRAME_SPECIFICATION.md).
 
