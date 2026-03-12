@@ -39,7 +39,7 @@ Each frame consists of the following fields:
 - **Format:** 32-bit unsigned integer, little-endian
 - **Source:** Hardware timer (TIM2) counter value
 - **Purpose:** Provides timing information for received CAN messages and events
-- **Resolution:** Depends on TIM2 configuration
+- **Resolution:** 10µs (microseconds)
 
 ### Packet Sequence
 - **Format:** 16-bit unsigned integer, little-endian
@@ -348,7 +348,7 @@ DLC = 12
 
 Frame structure:
 - TAG: 0xFF
-- Length: 23 bytes
+- Length: 29 bytes
 - Timestamp: Variable
 - Packet Seq: Variable
 - Payload[0]: 0x10 (CMD_SEND_DOWNSTREAM)
